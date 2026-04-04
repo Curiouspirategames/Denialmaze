@@ -1185,10 +1185,13 @@ function encodeState() {
       t:  G.stats.tasks,
       mv: G.stats.moves,
       c:  [...G.completedNodes],
+      // Save ALL visited node IDs (junctions + dead ends), not just completed dead ends
+      v:  G.maze ? G.maze.nodes.filter(n => n.visited).map(n => n.id) : [],
       og: G.ongoingTasks,
       ph: G.phase,
       ti: G.thornIn,
       wv: G._wasVisited ? 1 : 0,
+      cd: G._cameFromDir || '',
     };
     const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(d))));
     return b64.replace(/(.{8})/g,'$1-').replace(/-$/,'');
@@ -1213,6 +1216,8 @@ function decodeState(raw) {
   G2.phase          = d.ph||'nav';
   G2.thornIn        = d.ti ?? rollThornInterval(new RNG(d.s ^ 0x12345678));
   G2._wasVisited    = !!(d.wv);
+  G2._cameFromDir   = d.cd || null;
+  G2._visitedIds    = d.v || [];   // stored for loadGame to apply to maze nodes
   return G2;
 }
 
@@ -1223,11 +1228,23 @@ function loadGame() {
     G         = decodeState(raw);
     G.maze    = generateMaze(G.seed, G.opts, G.chancePct, G.hardMode);
     G.verdict = G.maze.verdict;
-    // Re-mark visited nodes on maze object (since maze is regenerated from seed)
+
+    // Restore visited status on maze nodes.
+    // Use the saved visited ID list if present (new saves), otherwise
+    // fall back to marking completed dead ends + entrance + current node
+    // (covers saves made before this fix).
+    const visitedIds = G._visitedIds && G._visitedIds.length > 0
+      ? G._visitedIds
+      : [...G.completedNodes, 0, G.node];
+
+    visitedIds.forEach(id => {
+      if (G.maze.nodes[id]) G.maze.nodes[id].visited = true;
+    });
+    // Always ensure entrance and current node are marked
     G.maze.nodes[0].visited = true;
-    G.completedNodes.forEach(id => { G.maze.nodes[id].visited = true; });
-    // Also mark current node visited
-    G.maze.nodes[G.node].visited = true;
+    if (G.maze.nodes[G.node]) G.maze.nodes[G.node].visited = true;
+
+    delete G._visitedIds; // clean up temporary field
     saveCodeVisible = false;
     showScreen('screen-game');
     renderAll();
@@ -1918,19 +1935,24 @@ function drawThornOverlay(ctx, W, H, cx, horizY) {
 }
 
 // ── Mini-map ─────────────────────────────────────────────────────
-// Strict compass-grid layout: N=up, S=down, E=right, W=left.
-// First BFS visit wins the grid position — correct by definition.
-// Loop-back edges (where dest already has a position that doesn't
-// match the expected direction) are drawn as small curved arcs
-// so they're visually distinct and don't confuse the layout.
-// Unexplored exits drawn as dashed stubs in the correct compass direction.
 function drawMinimap() {
   const cv  = document.getElementById('minimap');
   const ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
-  const nodes = G.maze.nodes;
 
   ctx.clearRect(0, 0, W, H);
+  ctx.setLineDash([]); // always start clean
+
+  try {
+    _drawMinimapInner(ctx, W, H);
+  } catch(e) {
+    // If anything goes wrong, leave the minimap blank rather than corrupted
+    ctx.setLineDash([]);
+  }
+}
+
+function _drawMinimapInner(ctx, W, H) {
+  const nodes = G.maze.nodes;
 
   // Collect visited nodes
   const visitedSet = new Set();
@@ -1942,7 +1964,7 @@ function drawMinimap() {
   // ── BFS: assign integer grid coordinates ──
   // N=(-y), S=(+y), E=(+x), W=(-x) — first visit wins, no collision offset.
   const dv = { N:[0,-1], S:[0,1], E:[1,0], W:[-1,0] };
-  const grid = new Map();   // nodeId -> [gx, gy]
+  const grid = new Map();
   const placed = new Set();
   grid.set(0, [0, 0]);
   placed.add(0);
@@ -1951,7 +1973,9 @@ function drawMinimap() {
   while (bfsQ.length) {
     const cur = bfsQ.shift();
     if (!visitedSet.has(cur)) continue;
-    const [cx, cy] = grid.get(cur);
+    const coords = grid.get(cur);
+    if (!coords) continue;
+    const [cx, cy] = coords;
     for (const [dir, dest] of Object.entries(nodes[cur].exits)) {
       if (placed.has(dest) || !visitedSet.has(dest)) continue;
       const [dx, dy] = dv[dir];
@@ -1968,14 +1992,15 @@ function drawMinimap() {
   const gyAll = [...grid.values()].map(([,y]) => y);
   const minX = Math.min(...gxAll), maxX = Math.max(...gxAll);
   const minY = Math.min(...gyAll), maxY = Math.max(...gyAll);
-  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+  const spanX = Math.max(1, maxX - minX);
+  const spanY = Math.max(1, maxY - minY);
   const pad = 12;
   const drawW = W - pad*2, drawH = H - pad*2;
 
-  // Cell size: fit everything, but cap so nodes aren't tiny
-  const cellPx = Math.min(drawW / Math.max(spanX, 1), drawH / Math.max(spanY, 1), 22);
+  // Cell size — fit all nodes within canvas, no cap that could push nodes outside
+  const cellPx = Math.min(drawW / spanX, drawH / spanY, 20);
 
-  // Centre the grid in the canvas
+  // Centre the grid
   const totalW = spanX * cellPx, totalH = spanY * cellPx;
   const offX = pad + (drawW - totalW) / 2;
   const offY = pad + (drawH - totalH) / 2;
@@ -1987,20 +2012,23 @@ function drawMinimap() {
     ];
   }
 
-  // Build pixel positions
+  // Build pixel positions — clamp to canvas so nothing renders off-screen
   const pos = new Map();
   for (const [nid, [gx, gy]] of grid) {
-    pos.set(nid, toPixel(gx, gy));
+    const [px, py] = toPixel(gx, gy);
+    pos.set(nid, [
+      Math.max(pad, Math.min(W - pad, px)),
+      Math.max(pad, Math.min(H - pad, py)),
+    ]);
   }
 
   // ── Draw edges ──
-  // "Correct" edges: dest's grid position matches the expected direction offset → straight line
-  // "Loop" edges: dest already placed but position doesn't match → curved arc
   const drawnEdges = new Set();
-  ctx.setLineDash([]);
 
   for (const [nid, [px, py]] of pos) {
-    const [ngx, ngy] = grid.get(nid);
+    const gridCoord = grid.get(nid);
+    if (!gridCoord) continue;
+    const [ngx, ngy] = gridCoord;
 
     for (const [dir, dest] of Object.entries(nodes[nid].exits)) {
       if (!pos.has(dest)) continue;
@@ -2009,24 +2037,25 @@ function drawMinimap() {
       drawnEdges.add(edgeKey);
 
       const [qx, qy] = pos.get(dest);
-      const [dgx, dgy] = grid.get(dest);
+      const destGrid = grid.get(dest);
+      if (!destGrid) continue;
+      const [dgx, dgy] = destGrid;
       const [expDx, expDy] = dv[dir];
       const isCorrect = (dgx === ngx + expDx) && (dgy === ngy + expDy);
 
+      ctx.setLineDash([]); // reset before every edge draw
       if (isCorrect) {
-        // Straight line — direction matches
         ctx.strokeStyle = 'rgba(196,118,138,0.45)';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke();
       } else {
-        // Loop edge — draw as a small arc to show it's a shortcut/loop
         ctx.strokeStyle = 'rgba(196,118,138,0.22)';
         ctx.lineWidth = 1;
         ctx.setLineDash([2, 3]);
         const midX = (px + qx) / 2, midY = (py + qy) / 2;
-        const bulge = 8;
         const perpX = -(qy - py), perpY = (qx - px);
         const perpLen = Math.sqrt(perpX*perpX + perpY*perpY) || 1;
+        const bulge = 8;
         const cpX = midX + (perpX/perpLen)*bulge;
         const cpY = midY + (perpY/perpLen)*bulge;
         ctx.beginPath(); ctx.moveTo(px,py); ctx.quadraticCurveTo(cpX,cpY,qx,qy); ctx.stroke();
@@ -2042,7 +2071,8 @@ function drawMinimap() {
       if (visitedSet.has(dest)) continue;
       const [dx, dy] = dv[dir];
       const stubLen = Math.max(6, cellPx * 0.45);
-      const tipX = px + dx*stubLen, tipY = py + dy*stubLen;
+      const tipX = Math.max(2, Math.min(W-2, px + dx*stubLen));
+      const tipY = Math.max(2, Math.min(H-2, py + dy*stubLen));
       ctx.strokeStyle = 'rgba(212,144,74,0.6)';
       ctx.lineWidth = 1.2;
       ctx.setLineDash([2, 2]);
@@ -2074,10 +2104,10 @@ function drawMinimap() {
     ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.fill();
   }
 
-  // ── Tiny compass rose (top-left of minimap) ──
-  const cr = 7, crx = 9, cry = 9;
-  ctx.fillStyle = 'rgba(196,118,138,0.25)';
-  ctx.beginPath(); ctx.arc(crx,cry,cr,0,Math.PI*2); ctx.fill();
+  // ── Tiny compass rose ──
+  const crx = 9, cry = 9;
+  ctx.fillStyle = 'rgba(196,118,138,0.22)';
+  ctx.beginPath(); ctx.arc(crx,cry,7,0,Math.PI*2); ctx.fill();
   ctx.fillStyle = 'rgba(232,168,184,0.7)';
   ctx.font = 'bold 5px Josefin Sans, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
