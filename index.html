@@ -312,7 +312,104 @@ input[type=range].chance-range::-webkit-slider-thumb {
 [data-area="west"] { grid-area:west;  }
 [data-area="you"]  { grid-area:you;   }
 
-/* ── TASK CARD ── */
+/* ── BUILT-IN TIMER & METRONOME ── */
+.task-timer {
+  margin: 14px 0;
+  background: rgba(30,10,27,0.6);
+  border: 1px solid rgba(196,118,138,0.25);
+  border-radius: 10px;
+  padding: 18px 16px;
+  text-align: center;
+}
+.timer-display {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2.6rem; font-weight: 300;
+  color: var(--amber-light); letter-spacing: 0.08em;
+  line-height: 1;
+}
+.timer-label {
+  font-size: 0.68rem; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--muted);
+  margin-top: 4px; margin-bottom: 12px;
+}
+.timer-optional-note {
+  font-size: 0.65rem; letter-spacing: 0.12em;
+  color: var(--muted); margin-bottom: 10px;
+  font-style: italic;
+}
+  font-family: 'Josefin Sans', sans-serif;
+  font-size: 0.72rem; letter-spacing: 0.18em;
+  text-transform: uppercase; font-weight: 600;
+  padding: 10px 22px; border: none; border-radius: 8px;
+  cursor: pointer; transition: all 0.2s;
+  background: rgba(196,118,138,0.2);
+  border: 1px solid rgba(196,118,138,0.4);
+  color: var(--rose-light);
+}
+.timer-start-btn:hover { background: rgba(196,118,138,0.32); }
+.timer-start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.timer-progress {
+  height: 3px; background: rgba(196,118,138,0.12);
+  border-radius: 2px; overflow: hidden; margin-top: 12px;
+}
+.timer-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--rose), var(--amber));
+  border-radius: 2px;
+  transition: width 0.25s linear;
+}
+/* Metronome pulse */
+.metro-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.metro-bpm {
+  font-size: 0.72rem; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--muted);
+}
+.metro-bpm strong { color: var(--amber-light); font-size: 1rem; letter-spacing: 0.05em; }
+.metro-pulse-ring {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(196,118,138,0.3);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.metro-pulse-ring::after {
+  content: '';
+  position: absolute; inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--rose);
+  opacity: 0;
+  transform: scale(1);
+  transition: none;
+}
+.metro-pulse-ring.beat::after {
+  animation: metroBeat 0.35s ease-out forwards;
+}
+@keyframes metroBeat {
+  0%   { opacity: 0.9; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.55); }
+}
+.metro-core {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: rgba(196,118,138,0.3);
+  border: 2px solid var(--rose);
+  transition: transform 0.08s ease, background 0.08s ease;
+}
+.metro-core.pop {
+  transform: scale(1.25);
+  background: var(--rose);
+}
+.metro-mute {
+  font-size: 0.65rem; letter-spacing: 0.15em;
+  text-transform: uppercase; background: transparent;
+  border: 1px solid rgba(196,118,138,0.2);
+  color: var(--muted); padding: 5px 12px;
+  border-radius: 6px; cursor: pointer;
+  font-family: 'Josefin Sans', sans-serif;
+  transition: all 0.2s;
+}
+.metro-mute:hover { border-color: var(--rose); color: var(--rose-light); }
+.metro-mute.muted { color: rgba(196,118,138,0.4); }
 .task-card {
   background:rgba(30,10,27,0.88);
   border:1px solid rgba(196,118,138,0.42);
@@ -509,6 +606,17 @@ input[type=range].chance-range::-webkit-slider-thumb {
   </div>
 
   <div class="panel">
+    <div class="panel-title" style="color:#e88a8a;">🔥 Hard Mode</div>
+    <div class="toggle-item" id="toggle-hard" onclick="toggleHard()" style="border-color:rgba(220,80,80,0.25);">
+      <div>
+        <div class="toggle-label">Enable Hard Mode</div>
+        <div class="toggle-desc">Longer maze · Edge tasks doubled · Thorns demand 2 edges · Pain counts doubled · Wizard demands more</div>
+      </div>
+      <div class="toggle-status">Off</div>
+    </div>
+  </div>
+
+  <div class="panel">
     <div class="panel-title">Orgasm Fate</div>
     <div class="radio-group" id="fate-options">
       <div class="radio-item selected" onclick="selectFate('decide')" data-fate="decide">
@@ -611,7 +719,7 @@ input[type=range].chance-range::-webkit-slider-thumb {
   <div id="thorn-gate" style="display:none">
     <div class="thorn-gate">
       <div class="thorn-title">🌹 The Path is Blocked by Thorns</div>
-      <div class="thorn-body">
+      <div class="thorn-body" id="thorn-body">
         A thick tangle of thorns has woven itself across the path ahead.<br>
         Only the energy released from an edge can cut through them.<br><br>
         <strong style="color:var(--rose-light);letter-spacing:0.1em;">Edge once now, then confirm below to proceed.</strong>
@@ -737,14 +845,15 @@ const OPP  = { N:'S', S:'N', E:'W', W:'E' };
 const DIRS = ['N','S','E','W'];
 
 // ── Maze generation ──────────────────────────────────────────────
-// Junctions: 20–28. Dead ends: 12–16 (guarantees ~10+ tasks avg).
-// Exit placed at minimum 8 steps from entrance along backbone.
-function generateMaze(seed, opts, chancePct) {
+// Normal: junctions 30–42, dead ends 18–24, min exit depth 12.
+// Hard:   junctions 60–84, dead ends 36–48, min exit depth 24.
+function generateMaze(seed, opts, chancePct, hardMode) {
   const rng = new RNG(seed);
 
-  const NUM_J  = rng.int(20, 28);
-  const NUM_D  = rng.int(12, 16);
+  const NUM_J  = hardMode ? rng.int(60, 84) : rng.int(30, 42);
+  const NUM_D  = hardMode ? rng.int(36, 48) : rng.int(18, 24);
   const TOTAL  = NUM_J + NUM_D;
+  const minExit = hardMode ? 24 : 12;
 
   const nodes = Array.from({ length: TOTAL }, (_, i) => ({
     id: i, exits: {},
@@ -758,12 +867,12 @@ function generateMaze(seed, opts, chancePct) {
   // Backbone: shuffle junctions, ensure entrance (0) first, exit deep in sequence
   const jSeq = rng.shuffle([...Array(NUM_J).keys()]);
   const ep = jSeq.indexOf(0); [jSeq[0], jSeq[ep]] = [jSeq[ep], jSeq[0]];
-  const exitPos = rng.int(Math.min(8, NUM_J - 1), NUM_J - 1);
+  const exitPos = rng.int(Math.min(minExit, NUM_J - 1), NUM_J - 1);
   const exitId  = jSeq[exitPos];
   nodes[exitId].isEnd = true;
 
-  // Wizard edge demand (seeded so it's consistent but not predictable)
-  const wizardEdges = rng.int(2, 10);
+  // Wizard edge demand — doubled in hard mode
+  const wizardEdges = hardMode ? rng.int(4, 20) : rng.int(2, 10);
 
   function connect(a, b, d) {
     nodes[a].exits[d] = b;
@@ -800,7 +909,7 @@ function generateMaze(seed, opts, chancePct) {
   // Generate tasks
   const taskRng = new RNG(seed ^ 0xDEADBEEF);
   for (let i = NUM_J; i < TOTAL; i++) {
-    nodes[i].task = generateTask(taskRng, opts);
+    nodes[i].task = generateTask(taskRng, opts, hardMode);
   }
 
   // Names & descriptions
@@ -875,77 +984,105 @@ function generateMaze(seed, opts, chancePct) {
 }
 
 // ── Task generation ──────────────────────────────────────────────
-function generateTask(rng, opts) {
+function generateTask(rng, opts, hardMode) {
   const cats = ['edge', 'tease'];
   if (opts.pain)      cats.push('pain');
   if (opts.humil)     cats.push('humil');
   if (opts.community) cats.push('other');
-  return buildTask(rng.pick(cats), rng);
+  return buildTask(rng.pick(cats), rng, hardMode);
 }
 
 function nTimes(x) { return x === 1 ? 'once' : `${x} times`; }
 
-function buildTask(cat, rng) {
+function buildTask(cat, rng, hard) {
+  // Hard mode multipliers
+  const eMax  = hard ? 9 : 3;    // edge count max (1–3 normal, 3–9 hard)
+  const eMin  = hard ? 3 : 1;
+  const spMax = hard ? 60 : 30;  // spank count max (doubled in hard)
+  const spMin = hard ? 20 : 10;
+  const npMax = hard ? 50 : 25;  // nipple pinch max
+  const npMin = hard ? 20 : 10;
+  const ebMax = hard ? 50 : 25;  // elastic band snap max
+  const ebMin = hard ? 10 : 5;
+
   const bodyParts = ['your bottom','your left ass cheek','your right ass cheek','your left inner thigh','your right inner thigh'];
+  const elasticParts = ['your left inner thigh','your right inner thigh','your left top of thigh','your right top of thigh','your left chest','your right chest'];
 
   if (cat === 'edge') {
     const variants = [
-      () => { const x = rng.int(1,3); return `Edge ${nTimes(x)}.`; },
-      () => { const x = rng.int(1,3); return `Edge ${nTimes(x)} whilst holding your tongue to the roof of your mouth.`; },
-      () => { const x = rng.int(1,3); return `Edge ${nTimes(x)} using a toy.`; },
-      () => { const x = rng.int(1,3); return `Edge ${nTimes(x)} whilst your nipples are clamped.`; },
-      () => { const x = rng.int(1,3); return `Edge ${nTimes(x)} using only your hands or fingers.`; },
+      () => { const x=rng.int(eMin,eMax); return `Edge ${nTimes(x)}.`; },
+      () => { const x=rng.int(eMin,eMax); return `Edge ${nTimes(x)} using a toy.`; },
+      () => { const x=rng.int(eMin,eMax); return `Edge ${nTimes(x)} using only your hands or fingers.`; },
     ];
     const text = rng.pick(variants)();
     const m = text.match(/(\d+) times|once/);
-    const edges = m ? (m[0] === 'once' ? 1 : parseInt(m[1])) : 1;
-    return { cat, type:'Edging Task', text, edges, ongoing:null };
+    const edges = m ? (m[0] === 'once' ? 1 : parseInt(m[1])) : eMin;
+    return { cat, type:'Edging Task', text, edges, ongoing:null, timerData:null };
   }
 
   if (cat === 'tease') {
     const variants = [
-      () => { const x = rng.int(1,4); return `Play ${x===1?'one song':`${x} songs`}. Stroke or rub during the verses and stop during the chorus. Do not edge.`; },
-      () => { const x = rng.int(5,15); return `Softly drag your fingertips across your inner thighs ${x} times. Really try to feel every sensation.`; },
-      () => { const m = rng.pick([30,40,50,60,70,80,90,100,110,120]); const t = rng.int(1,5); return `Set a metronome to ${m} bpm and stroke or rub for ${t} ${t===1?'minute':'minutes'}.`; },
-      () => `Find an erotic story you enjoy and read it whilst teasing yourself.`,
-      () => { const x = rng.int(1,10); return `Use a teasy toy — or tease with your hands — for ${x} ${x===1?'minute':'minutes'}.`; },
-      () => { const x = rng.int(2,10); return `Find a video you enjoy that lasts at least ${x} minutes and watch without touching yourself.`; },
+      () => { const x=rng.int(1,4); return { text:`Play ${x===1?'one song':`${x} songs`}. Stroke or rub during the verses and stop during the chorus. Do not edge.`, timer:null }; },
+      () => { const x=rng.int(5,15); return { text:`Softly drag your fingertips across your inner thighs ${x} times. Really try to feel every sensation.`, timer:null }; },
+      () => { const m=rng.pick([30,40,50,60,70,80,90,100]); const t=rng.int(1,5); return { text:`Set a metronome to ${m} bpm and stroke or rub for ${t} ${t===1?'minute':'minutes'}. One stroke or circle per beat.`, timer:{type:'metro', bpm:m, secs:t*60} }; },
+      () => { return { text:`Find an erotic story you enjoy and read it whilst teasing yourself.`, timer:null }; },
+      () => { const x=rng.int(1,10); return { text:`Use a teasy toy — or tease with your hands — for ${x} ${x===1?'minute':'minutes'}.`, timer:{type:'countdown', secs:x*60, label:'Teasing time'} }; },
+      () => { const x=rng.int(2,10); return { text:`Find a kinky video you enjoy that lasts at least ${x} minutes and watch without touching yourself.`, timer:{type:'countdown', secs:x*60, label:'Watch time'} }; },
     ];
-    return { cat, type:'Teasing Task', text:rng.pick(variants)(), edges:0, ongoing:null };
+    const v = rng.pick(variants)();
+    return { cat, type:'Teasing Task', text:v.text, edges:0, ongoing:null, timerData:v.timer||null };
   }
 
   if (cat === 'pain') {
     const variants = [
-      () => { const p=rng.pick(bodyParts),x=rng.int(10,30); return `Spank ${p} with your hand ${x} times.`; },
-      () => { const p=rng.pick(bodyParts),x=rng.int(10,30); return `Find a soft spanking implement. Spank ${p} ${x} times.`; },
-      () => { const p=rng.pick(bodyParts),x=rng.int(10,30); return `Find a hard spanking implement. Spank ${p} ${x} times.`; },
+      () => { const p=rng.pick(bodyParts),x=rng.int(spMin,spMax); return `Spank ${p} with your hand ${x} times.`; },
+      () => { const p=rng.pick(bodyParts),x=rng.int(spMin,spMax); return `Find a soft spanking implement. Spank ${p} ${x} times.`; },
+      () => { const p=rng.pick(bodyParts),x=rng.int(spMin,spMax); return `Find a hard spanking implement. Spank ${p} ${x} times.`; },
       () => { const s=rng.pick([10,20,30,40,50,60]); return `Twist both nipples and hold for ${s} seconds.`; },
-      () => { const x=rng.int(10,25); return `Pinch and twist both nipples ${x} times.`; },
+      () => { const x=rng.int(npMin,npMax); return `Pinch and twist both nipples ${x} times.`; },
+      () => { const x=rng.int(eMin,eMax); return `Edge ${nTimes(x)} whilst your nipples are clamped.`; },
+      () => { const x=rng.int(ebMin,ebMax); const p=rng.pick(elasticParts); return `Find an elastic band or similar. Do ${x} snaps on ${p}. If you don't have an elastic band, do a pinch and twist instead.`; },
     ];
-    return { cat, type:'Pain Task', text:rng.pick(variants)(), edges:0, ongoing:null };
+    const v = rng.pick(variants);
+    const text = v();
+    // Check if this is the clamped-edge variant
+    const clampMatch = text.match(/Edge (\d+) times|Edge once/);
+    const edges = clampMatch ? (clampMatch[0].includes('once') ? 1 : parseInt(clampMatch[1])) : 0;
+    // Nipple hold gets a countdown timer
+    const nippleMatch = text.match(/hold for (\d+) seconds/);
+    const timerData = nippleMatch ? { type:'countdown', secs:parseInt(nippleMatch[1]), label:'Hold' } : null;
+    return { cat, type:'Pain Task', text, edges, ongoing:null, timerData };
   }
 
   if (cat === 'humil') {
     const variants = [
-      () => { const x=rng.int(1,4); return { text:`Kneel with your legs spread wide and your tongue touching the roof of your mouth for ${x} ${x===1?'minute':'minutes'}.`, ongoing:null }; },
-      () => ({ text:`Strip naked if you aren't already, and hold your underwear in your mouth for the rest of the game — unless another task causes you to stop.`, ongoing:'Holding your underwear in your mouth.' }),
-      () => ({ text:`Open your mouth and keep your tongue sticking out until you reach another dead end or finish the maze.`, ongoing:'Tongue out until your next dead end.' }),
-      () => ({ text:`Run your fingertips across your wetness and rub this into your skin beneath your nose. Lucky (?) you if you're not wet yet.`, ongoing:null }),
-      () => { const x=rng.int(1,5); return { text:`Corner time — stand naked in the corner of your room with your legs spread for ${x} ${x===1?'minute':'minutes'}.`, ongoing:null }; },
+      () => { const x=rng.int(1,4); return { text:`Kneel with your legs spread wide and your tongue touching the roof of your mouth for ${x} ${x===1?'minute':'minutes'}.`, ongoing:null, timer:{type:'countdown', secs:x*60, label:'Kneeling time'} }; },
+      () => ({ text:`Strip naked if you aren't already, and hold your underwear in your mouth for the rest of the game — unless another task causes you to stop.`, ongoing:'Holding your underwear in your mouth.', timer:null }),
+      () => ({ text:`Open your mouth and keep your tongue sticking out until you reach another dead end or finish the maze.`, ongoing:'Tongue out until your next dead end.', timer:null }),
+      () => ({ text:`Run your fingertips across your wetness and rub this into your skin beneath your nose. Lucky (?) you if you're not wet yet.`, ongoing:null, timer:null }),
+      () => ({ text:`Run your fingertips across your wetness and taste yourself.`, ongoing:null, timer:null }),
+      () => { const x=rng.int(1,5); return { text:`Corner time — stand naked in the corner of your room with your legs spread and your mouth open for ${x} ${x===1?'minute':'minutes'}.`, ongoing:null, timer:{type:'countdown', secs:x*60, label:'Corner time'} }; },
+      () => { const x=rng.int(eMin,eMax); return { text:`Edge ${nTimes(x)} whilst holding your tongue to the roof of your mouth. Make sure you let that drool drop down yourself.`, ongoing:null, timer:null }; },
+      () => { const x=rng.int(1,3); return { text:`Find something to hump — a pillow or a table corner. Hump like you're trying to get to an edge for ${x} ${x===1?'minute':'minutes'}. Edging is very much allowed.`, ongoing:null, timer:{type:'countdown', secs:x*60, label:'Humping time'} }; },
     ];
     const v = rng.pick(variants)();
-    return { cat, type:'Humiliation Task', text:v.text, edges:0, ongoing:v.ongoing };
+    const edgeMatch = v.text.match(/Edge (\d+) times|Edge once/);
+    const edges = edgeMatch ? (edgeMatch[0].includes('once') ? 1 : parseInt(edgeMatch[1])) : 0;
+    return { cat, type:'Humiliation Task', text:v.text, edges, ongoing:v.ongoing, timerData:v.timer||null };
   }
 
   if (cat === 'other') {
     const words = ['wet','horny','hot','edge','tease','orgasm','fantasy','denied'];
     const w = rng.pick(words);
     const variants = [
-      () => `Get somebody in the server to say the word "${w}" before you can continue. You cannot explicitly ask them to say it or use the word yourself. Tease yourself lightly whilst you try.`,
-      () => `Share a skin in the lewd room on the server.`,
-      () => `Share a BDSM skin in the BDSM lewd room on the server.`,
+      () => ({ text:`Get somebody in the server to say the word "${w}" before you can continue. You cannot explicitly ask them to say it or use the word yourself. Tease yourself lightly whilst you try. If nobody says it within 5 minutes, you may continue.`, timer:{type:'countdown', secs:300, label:'5 minute window'} }),
+      () => ({ text:`Share a lewd in the lewd room on the server.`, timer:null }),
+      () => ({ text:`Share a BDSM lewd in the BDSM lewd room on the server.`, timer:null }),
+      () => ({ text:`Poof a lewd in the poof room on the server.`, timer:null }),
+      () => ({ text:`Poof a BDSM lewd in the BDSM poof room on the server.`, timer:null }),
     ];
-    return { cat, type:'Community Task', text:rng.pick(variants)(), edges:0, ongoing:null };
+    const v = rng.pick(variants)();
+    return { cat, type:'Community Task', text:v.text, edges:0, ongoing:null, timerData:v.timer||null };
   }
 }
 
@@ -953,12 +1090,20 @@ function buildTask(cat, rng) {
 let uiOpts = { pain:false, humil:false, community:false };
 let uiFate = 'decide';
 let uiChance = 50;
+let uiHard = false;
 
 function toggleOpt(key) {
   uiOpts[key] = !uiOpts[key];
   const el = document.getElementById('toggle-' + key);
   el.classList.toggle('on', uiOpts[key]);
   el.querySelector('.toggle-status').textContent = uiOpts[key] ? 'On' : 'Off';
+}
+
+function toggleHard() {
+  uiHard = !uiHard;
+  const el = document.getElementById('toggle-hard');
+  el.classList.toggle('on', uiHard);
+  el.querySelector('.toggle-status').textContent = uiHard ? 'On' : 'Off';
 }
 
 function selectFate(fate) {
@@ -986,9 +1131,9 @@ function showScreen(id) {
 let G = null;
 let saveCodeVisible = false;
 
-function freshState(seed, opts, fate, chancePct) {
+function freshState(seed, opts, fate, chancePct, hardMode) {
   return {
-    seed, opts, fate, chancePct,
+    seed, opts, fate, chancePct, hardMode,
     node: 0,
     maze: null, verdict: null,
     stats: { edges:0, pain:0, humil:0, other:0, tasks:0, moves:0 },
@@ -998,6 +1143,7 @@ function freshState(seed, opts, fate, chancePct) {
     thornIn: 0,         // steps until next thorn (set fresh each time)
     _pendingDir: null,
     _wasVisited: false, // was current node already visited before this arrival?
+    _cameFromDir: null, // which direction we arrived from (to label the "back" button)
   };
 }
 
@@ -1009,8 +1155,8 @@ function rollThornInterval(rng) {
 // ── Start / Load ─────────────────────────────────────────────────
 function startNewGame() {
   const seed = (Math.floor(Math.random() * 0x7FFFFFFF) + 1) >>> 0;
-  G = freshState(seed, { ...uiOpts }, uiFate, uiChance);
-  G.maze    = generateMaze(seed, G.opts, uiChance);
+  G = freshState(seed, { ...uiOpts }, uiFate, uiChance, uiHard);
+  G.maze    = generateMaze(seed, G.opts, uiChance, G.hardMode);
   G.verdict = G.maze.verdict;
   // Roll first thorn interval
   G.thornIn = rollThornInterval(new RNG(seed ^ 0x12345678));
@@ -1031,6 +1177,7 @@ function encodeState() {
       o:  (G.opts.pain?1:0)|(G.opts.humil?2:0)|(G.opts.community?4:0),
       f:  {decide:0,granted:1,denied:2}[G.fate] ?? 0,
       cp: G.chancePct,
+      hm: G.hardMode ? 1 : 0,
       e:  G.stats.edges,
       p:  G.stats.pain,
       h:  G.stats.humil,
@@ -1041,6 +1188,7 @@ function encodeState() {
       og: G.ongoingTasks,
       ph: G.phase,
       ti: G.thornIn,
+      wv: G._wasVisited ? 1 : 0,
     };
     const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(d))));
     return b64.replace(/(.{8})/g,'$1-').replace(/-$/,'');
@@ -1055,7 +1203,8 @@ function decodeState(raw) {
     d.s,
     { pain:!!(d.o&1), humil:!!(d.o&2), community:!!(d.o&4) },
     fates[d.f] || 'decide',
-    d.cp ?? 50
+    d.cp ?? 50,
+    !!(d.hm)
   );
   G2.node           = d.n;
   G2.stats          = { edges:d.e||0, pain:d.p||0, humil:d.h||0, other:d.x||0, tasks:d.t||0, moves:d.mv||0 };
@@ -1063,6 +1212,7 @@ function decodeState(raw) {
   G2.ongoingTasks   = d.og||[];
   G2.phase          = d.ph||'nav';
   G2.thornIn        = d.ti ?? rollThornInterval(new RNG(d.s ^ 0x12345678));
+  G2._wasVisited    = !!(d.wv);
   return G2;
 }
 
@@ -1071,7 +1221,7 @@ function loadGame() {
   if (!raw) { notify('Please enter a save code'); return; }
   try {
     G         = decodeState(raw);
-    G.maze    = generateMaze(G.seed, G.opts, G.chancePct);
+    G.maze    = generateMaze(G.seed, G.opts, G.chancePct, G.hardMode);
     G.verdict = G.maze.verdict;
     // Re-mark visited nodes on maze object (since maze is regenerated from seed)
     G.maze.nodes[0].visited = true;
@@ -1126,15 +1276,18 @@ function tryMove(dir) {
   }
 
   // Move normally
+  G._cameFromDir = OPP[dir];
   G.node = node.exits[dir];
   arriveAtNode();
 }
 
 function clearThorns() {
-  // Player confirmed edge
-  G.stats.edges++;
-  const dest = G.maze.nodes[G.node].exits[G._pendingDir];
+  // Hard mode: thorns demand 2 edges. Normal: 1 edge.
+  G.stats.edges += G.hardMode ? 2 : 1;
+  const pendDir = G._pendingDir;
+  const dest = G.maze.nodes[G.node].exits[pendDir];
   G._pendingDir = null;
+  G._cameFromDir = OPP[pendDir];
   G.node = dest;
   G.phase = 'nav';
   arriveAtNode();
@@ -1178,7 +1331,8 @@ function completeTask() {
   const task = node.task;
 
   G.stats.tasks++;
-  if (task.cat === 'edge')  G.stats.edges += (task.edges || 1);
+  // Count edges from any task that includes edging (edge tasks, pain clamped, humil tongue-drool)
+  if (task.edges && task.edges > 0) G.stats.edges += task.edges;
   if (task.cat === 'pain')  G.stats.pain++;
   if (task.cat === 'humil') G.stats.humil++;
   if (task.cat === 'other') G.stats.other++;
@@ -1192,6 +1346,7 @@ function completeTask() {
 
   G.completedNodes.add(G.node);
   G.phase = 'nav';
+  stopTaskTimer();
   renderAll();
 }
 
@@ -1207,8 +1362,9 @@ function renderAll() {
   if (!G || !G.maze) return;
   const node = G.maze.nodes[G.node];
 
-  // Location text — prefix dead ends with "Dead End —"
-  const namePrefix = node.isDeadEnd ? '☠ Dead End — ' : '';
+  // Location text — prefix uncompleted dead ends with dead end label
+  const isUncompletedDeadEnd = node.isDeadEnd && !G.completedNodes.has(G.node);
+  const namePrefix = isUncompletedDeadEnd ? '☠ Dead End — ' : '';
   document.getElementById('location-name').textContent = namePrefix + node.name;
   // "Been here before" only if the node was ALREADY visited before this arrival
   // G._wasVisited is set in arriveAtNode() before node.visited is set to true
@@ -1270,6 +1426,35 @@ function renderAll() {
     document.getElementById(id).style.display = show ? 'block' : 'none';
   }
 
+  // Update thorn text for hard mode
+  if (G.phase === 'thorn') {
+    const thornEl = document.getElementById('thorn-body');
+    if (thornEl) {
+      thornEl.innerHTML = G.hardMode
+        ? `A thick tangle of thorns has woven itself across the path ahead.<br>
+           These thorns are particularly vicious — they demand <strong style="color:var(--rose-light)">two edges</strong> before they'll part.<br><br>
+           <strong style="color:var(--rose-light);letter-spacing:0.1em;">Edge twice now, then confirm below to proceed.</strong>`
+        : `A thick tangle of thorns has woven itself across the path ahead.<br>
+           Only the energy released from an edge can cut through them.<br><br>
+           <strong style="color:var(--rose-light);letter-spacing:0.1em;">Edge once now, then confirm below to proceed.</strong>`;
+    }
+  }
+
+  // Hard mode chip
+  let hardChip = document.getElementById('chip-hard');
+  if (G.hardMode) {
+    if (!hardChip) {
+      hardChip = document.createElement('div');
+      hardChip.id = 'chip-hard';
+      hardChip.className = 'stat-chip';
+      hardChip.style.cssText = 'color:#e88a8a;border-color:rgba(220,80,80,0.35);background:rgba(180,40,40,0.12)';
+      hardChip.innerHTML = '🔥 Hard Mode';
+      document.querySelector('.stats-bar').prepend(hardChip);
+    }
+  } else if (hardChip) {
+    hardChip.remove();
+  }
+
   if (G.phase === 'task') showTaskCard(node.task);
   if (G.phase === 'wizard') showWizard();
   if (G.phase === 'nav')   renderCompass(node);
@@ -1281,7 +1466,182 @@ function showTaskCard(task) {
   const badge = document.getElementById('task-badge');
   badge.textContent  = task.type.replace(' Task','');
   badge.className    = 'task-badge badge-' + task.cat;
-  document.getElementById('task-complete-btn').style.display = 'block';
+
+  // Stop any running timer/metronome from previous task
+  stopTaskTimer();
+
+  // Reset mute state for each new task so metro isn't silently muted
+  _taskMetroMuted = false;
+
+  // Complete button — always enabled (timers are advisory, not mandatory)
+  const completeBtn = document.getElementById('task-complete-btn');
+  completeBtn.style.display = 'block';
+  completeBtn.disabled = false;
+  completeBtn.style.opacity = '1';
+  completeBtn.textContent = 'Task Complete ✓';
+
+  // Render the appropriate widget
+  renderTaskWidget(task.timerData);
+}
+
+function renderTaskWidget(td) {
+  // Remove old widget if any
+  const old = document.getElementById('task-widget');
+  if (old) old.remove();
+
+  if (!td) return;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'task-widget';
+  wrap.className = 'task-timer';
+
+  const optionalNote = '<div class="timer-optional-note">Optional — tap Start or use your own timer</div>';
+
+  if (td.type === 'metro') {
+    wrap.innerHTML = `
+      <div class="metro-wrap">
+        <div class="metro-bpm">Metronome — <strong>${td.bpm} bpm</strong></div>
+        <div class="metro-pulse-ring" id="metroPulseRing">
+          <div class="metro-core" id="metroCore"></div>
+        </div>
+        <div class="timer-display" id="taskTimerDisplay">${formatTime(td.secs)}</div>
+        <div class="timer-label">${td.label || 'Time remaining'}</div>
+        ${optionalNote}
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button class="timer-start-btn" id="taskTimerStartBtn" onclick="startTaskTimer()">▶ Start</button>
+          <button class="metro-mute" id="metroMuteBtn" onclick="toggleMetroMute()">tap to mute</button>
+        </div>
+        <div class="timer-progress"><div class="timer-progress-fill" id="taskTimerBar" style="width:0%"></div></div>
+      </div>`;
+  } else {
+    wrap.innerHTML = `
+      <div class="timer-display" id="taskTimerDisplay">${formatTime(td.secs)}</div>
+      <div class="timer-label">${td.label || 'Time remaining'}</div>
+      ${optionalNote}
+      <button class="timer-start-btn" id="taskTimerStartBtn" onclick="startTaskTimer()">▶ Start timer</button>
+      <div class="timer-progress"><div class="timer-progress-fill" id="taskTimerBar" style="width:0%"></div></div>`;
+  }
+
+  // Insert before the complete button
+  document.getElementById('task-complete-btn').before(wrap);
+  // Store timer config on the element for retrieval
+  wrap._timerData = td;
+}
+
+// ── Task timer engine ────────────────────────────────────────────
+let _taskTimerInterval = null;
+let _taskMetroToken = 0;
+let _taskMetroMuted = false;
+let _taskAudioCtx = null;
+
+function formatTime(secs) {
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2,'0')}` : `${s}s`;
+}
+
+function getTaskAudioCtx() {
+  if (!_taskAudioCtx) _taskAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _taskAudioCtx;
+}
+
+function playMetroClick() {
+  if (_taskMetroMuted) return;
+  try {
+    const ac = getTaskAudioCtx();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    o.type = 'sine'; o.frequency.value = 700;
+    g.gain.setValueAtTime(0.22, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.06);
+    o.start(); o.stop(ac.currentTime + 0.06);
+  } catch(e) {}
+}
+
+function toggleMetroMute() {
+  _taskMetroMuted = !_taskMetroMuted;
+  const btn = document.getElementById('metroMuteBtn');
+  if (btn) {
+    btn.textContent = _taskMetroMuted ? 'tap to unmute' : 'tap to mute';
+    btn.classList.toggle('muted', _taskMetroMuted);
+  }
+  if (!_taskMetroMuted && _taskAudioCtx && _taskAudioCtx.state === 'suspended') {
+    _taskAudioCtx.resume();
+  }
+}
+
+function stopTaskTimer() {
+  _taskMetroToken++;
+  if (_taskTimerInterval) { clearInterval(_taskTimerInterval); _taskTimerInterval = null; }
+}
+
+function startTaskTimer() {
+  const widget = document.getElementById('task-widget');
+  if (!widget) return;
+  const td = widget._timerData;
+  if (!td) return;
+
+  // Resume audio context on user gesture
+  if (_taskAudioCtx && _taskAudioCtx.state === 'suspended') _taskAudioCtx.resume();
+
+  const startBtn = document.getElementById('taskTimerStartBtn');
+  if (startBtn) { startBtn.disabled = true; startBtn.textContent = '▶ Running…'; }
+
+  const totalSecs = td.secs;
+  let remaining = totalSecs;
+  const myToken = ++_taskMetroToken;
+
+  const displayEl = document.getElementById('taskTimerDisplay');
+  const barEl = document.getElementById('taskTimerBar');
+
+  // Start metronome if needed
+  if (td.type === 'metro') {
+    const bpm = td.bpm;
+    const intervalMs = 60000 / bpm;
+    let lastBeat = performance.now();
+
+    function scheduleBeat() {
+      if (_taskMetroToken !== myToken) return;
+      const now = performance.now();
+      if (now - lastBeat >= intervalMs - 5) {
+        lastBeat = now;
+        playMetroClick();
+        // Visual pulse
+        const ring = document.getElementById('metroPulseRing');
+        const core = document.getElementById('metroCore');
+        if (ring) { ring.classList.remove('beat'); void ring.offsetWidth; ring.classList.add('beat'); }
+        if (core) { core.classList.remove('pop'); void core.offsetWidth; core.classList.add('pop');
+          setTimeout(() => core.classList.remove('pop'), 120); }
+      }
+      if (_taskMetroToken === myToken) requestAnimationFrame(scheduleBeat);
+    }
+    requestAnimationFrame(scheduleBeat);
+  }
+
+  // Countdown interval (every second)
+  _taskTimerInterval = setInterval(() => {
+    if (_taskMetroToken !== myToken) { clearInterval(_taskTimerInterval); return; }
+    remaining--;
+    if (displayEl) displayEl.textContent = formatTime(Math.max(0, remaining));
+    if (barEl) barEl.style.width = ((totalSecs - remaining) / totalSecs * 100) + '%';
+
+    if (remaining <= 0) {
+      clearInterval(_taskTimerInterval);
+      _taskTimerInterval = null;
+      _taskMetroToken++; // stop metro
+      if (displayEl) displayEl.textContent = '✓ Done';
+      if (barEl) barEl.style.width = '100%';
+      // Play a gentle finish tone
+      try {
+        const ac = getTaskAudioCtx();
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.type = 'sine'; o.frequency.value = 523;
+        g.gain.setValueAtTime(0.15, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+        o.start(); o.stop(ac.currentTime + 0.6);
+      } catch(e) {}
+    }
+  }, 1000);
 }
 
 function showWizard() {
@@ -1300,18 +1660,24 @@ function renderCompass(node) {
     const open = dir in exits;
     const destId = exits[dir];
     const destVisited = open && G.maze.nodes[destId] && G.maze.nodes[destId].visited;
+    const isBack = dir === G._cameFromDir; // the exact direction we arrived from
 
     if (!open) {
       btn.className = 'dir-btn wall';
       btn.disabled  = true;
       btn.innerHTML = `<span class="dir-arrow" style="font-size:0.9rem;opacity:0.2">✕</span><span class="dir-word">${words[dir]}</span>`;
+    } else if (isBack) {
+      // This is the direction we just came from — label it clearly as "back"
+      btn.className = 'dir-btn available visited-exit';
+      btn.disabled  = false;
+      btn.innerHTML = `<span class="dir-arrow" style="opacity:0.6">${arrows[dir]}</span><span class="dir-word" style="opacity:0.6">${words[dir]}</span><span class="dir-word" style="opacity:0.5;font-size:0.5rem;margin-top:1px;">↩ back</span>`;
     } else if (destVisited) {
-      // Exit leads somewhere already visited — show as dimmer "return path"
+      // Leads somewhere visited but not the direction we came from
       btn.className = 'dir-btn available visited-exit';
       btn.disabled  = false;
       btn.innerHTML = `<span class="dir-arrow" style="opacity:0.6">${arrows[dir]}</span><span class="dir-word" style="opacity:0.6">${words[dir]}</span><span class="dir-word" style="opacity:0.4;font-size:0.5rem;margin-top:1px;">visited</span>`;
     } else {
-      // Unvisited — full brightness, new territory
+      // Unvisited — new territory
       btn.className = 'dir-btn available new-exit';
       btn.disabled  = false;
       btn.innerHTML = `<span class="dir-arrow">${arrows[dir]}</span><span class="dir-word">${words[dir]}</span><span class="dir-word" style="color:var(--amber-light);font-size:0.5rem;margin-top:1px;">new ✦</span>`;
@@ -1745,6 +2111,7 @@ function endGame() {
 
   const lines = [
     '🌿 The Denial Maze 🌿',
+    G.hardMode ? '🔥 HARD MODE' : '',
     verdict,
     '',
     `👣 Moves: ${G.stats.moves}`,
@@ -1754,7 +2121,7 @@ function endGame() {
     '',
     'Can you find your way through?',
     'curiouspirategames.github.io/denialmaze',
-  ];
+  ].filter(l => l !== '');
   document.getElementById('share-text').textContent = lines.join('\n');
 
   showScreen('screen-end');
